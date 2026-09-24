@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cutter &amp; Compress</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#f4f7fc; --ink-2:#ffffff; --ink-3:#eef2f9; --line:rgba(20,40,80,0.08); --line-strong:rgba(20,40,80,0.14);
+  --text:#1e2c42; --text-soft:#5b6b84; --text-dim:#8b97ab;
+  --brass:#2563eb; --brass-hi:#3b82f6;
+  --good:#15803d; --good-ink:#e5f7ec; --danger:#dc2626; --warn:#b45309;
+}
+html,body{ margin:0; padding:0; }
+body{
+  background:var(--ink); color:var(--text); font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  min-height:100vh; padding:22px 26px 60px;
+}
+h1{ font-size:19px; margin:0 0 4px; }
+.sub{ font-size:13px; color:var(--text-soft); margin:0 0 20px; max-width:760px; line-height:1.6; }
+.panel{ background:var(--ink-2); border:1px solid var(--line-strong); border-radius:13px; padding:18px; margin-bottom:16px; max-width:760px; }
+.row{ display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end; }
+label{ display:block; font-family:'IBM Plex Mono',monospace; font-size:11.5px; font-weight:600; color:var(--text-soft); margin-bottom:5px; }
+input[type=text], input[type=number]{
+  background:var(--ink-3); border:1.5px solid var(--line-strong); color:var(--text); padding:8px 10px; border-radius:7px;
+  font-family:'IBM Plex Mono',monospace; font-size:12.5px; width:110px;
+}
+input:focus{ outline:none; border-color:var(--brass); box-shadow:0 0 0 3px rgba(37,99,235,.18); }
+button{
+  background:var(--brass); color:#fff; border:1px solid var(--brass); padding:9px 15px; border-radius:7px; cursor:pointer;
+  font-family:'IBM Plex Mono',monospace; font-size:12px; font-weight:700; transition:filter .14s, transform .1s;
+}
+button:hover:not(:disabled){ filter:brightness(1.1); }
+button:active:not(:disabled){ transform:translateY(1px); }
+button:disabled{ opacity:.45; cursor:not-allowed; }
+button.secondary{ background:var(--ink-3); color:var(--text); border-color:var(--line-strong); }
+button.danger{ background:var(--danger); border-color:var(--danger); }
+.pickedName{ font-size:12px; color:var(--text-soft); margin-left:2px; }
+.note{ font-size:12px; color:var(--text-soft); line-height:1.6; margin-top:10px; }
+progress{ width:100%; height:9px; margin-top:14px; accent-color:var(--brass); }
+.status{ font-size:13px; color:var(--text-soft); margin-top:8px; font-family:'IBM Plex Mono',monospace; }
+.result{ margin-top:14px; padding:12px 14px; background:var(--good-ink); border:1px solid rgba(21,128,61,.25); border-radius:9px; font-size:13px; color:#0f3d24; display:none; }
+.error{ margin-top:14px; padding:12px 14px; background:#fdecea; border:1px solid rgba(220,38,38,.25); border-radius:9px; font-size:13px; color:#7f1d1d; display:none; }
+.adv-toggle{ font-size:12px; color:var(--brass); cursor:pointer; margin-top:10px; display:inline-block; user-select:none; }
+.adv{ display:none; margin-top:12px; }
+</style>
+</head>
+<body>
+
+<h1>✂️ Cutter &amp; Compress</h1>
+<p class="sub">Finds silent gaps in a video's audio and cuts them out, re-encoding once. "Compress" is
+part of the name — this doesn't shrink file size separately, it just removes the dead air.</p>
+
+<div class="panel">
+  <div class="row">
+    <div>
+      <label>Video to cut</label>
+      <button type="button" id="pickBtn">Choose video…</button>
+      <span class="pickedName" id="pickedName">No file chosen</span>
+    </div>
+  </div>
+  <div class="row" style="margin-top:14px">
+    <button type="button" id="runBtn" disabled>Cut silences</button>
+    <button type="button" class="danger" id="cancelBtn" style="display:none">Cancel</button>
+  </div>
+  <span class="adv-toggle" id="advToggle">Advanced settings ▾</span>
+  <div class="adv" id="advPanel">
+    <div class="row">
+      <div><label>Silence threshold (dB)</label><input type="number" id="thresholdDb" value="-30" max="0"></div>
+      <div><label>Min gap length (sec)</label><input type="number" id="minDuration" value="0.5" min="0.05" step="0.05"></div>
+      <div><label>Padding kept (sec)</label><input type="number" id="padding" value="0.1" min="0" step="0.05"></div>
+    </div>
+    <div class="note">Defaults match the original tool (-30 dB, 0.5s minimum gap, 0.1s padding kept on each side of every cut).</div>
+  </div>
+  <progress id="prog" value="0" max="100" style="display:none"></progress>
+  <div class="status" id="statusLine"></div>
+  <div class="result" id="resultBox"></div>
+  <div class="error" id="errorBox"></div>
+</div>
+
+<script>
+const pickBtn = document.getElementById('pickBtn');
+const pickedName = document.getElementById('pickedName');
+const runBtn = document.getElementById('runBtn');
+const cancelBtn = document.getElementById('cancelBtn');
+const advToggle = document.getElementById('advToggle');
+const advPanel = document.getElementById('advPanel');
+const prog = document.getElementById('prog');
+const statusLine = document.getElementById('statusLine');
+const resultBox = document.getElementById('resultBox');
+const errorBox = document.getElementById('errorBox');
+
+let inputPath = null;
+let running = false;
+
+advToggle.addEventListener('click', () => {
+  const open = advPanel.style.display === 'block';
+  advPanel.style.display = open ? 'none' : 'block';
+  advToggle.textContent = 'Advanced settings ' + (open ? '▾' : '▴');
+});
+
+pickBtn.addEventListener('click', async () => {
+  if (!window.vem) { errorBox.style.display='block'; errorBox.textContent='window.vem is missing — this page must run inside the app.'; return; }
+  const p = await window.vem.cutterPickVideo();
+  if (!p) return;
+  inputPath = p;
+  pickedName.textContent = p.split('/').pop();
+  runBtn.disabled = false;
+  resultBox.style.display = 'none';
+  errorBox.style.display = 'none';
+});
+
+function baseName(p){
+  const file = p.split('/').pop();
+  const dot = file.lastIndexOf('.');
+  return dot > 0 ? file.slice(0, dot) : file;
+}
+
+runBtn.addEventListener('click', async () => {
+  if (!inputPath || running) return;
+  const defaultName = baseName(inputPath) + '-cut.mp4';
+  const outPath = await window.vem.cutterPickSavePath(defaultName);
+  if (!outPath) return;
+
+  const opts = {
+    thresholdDb: Number(document.getElementById('thresholdDb').value) || -30,
+    minDuration: Number(document.getElementById('minDuration').value) || 0.5,
+    padding: Number(document.getElementById('padding').value) || 0.1,
+  };
+
+  running = true;
+  runBtn.disabled = true;
+  pickBtn.disabled = true;
+  cancelBtn.style.display = '';
+  prog.style.display = '';
+  prog.value = 0;
+  resultBox.style.display = 'none';
+  errorBox.style.display = 'none';
+  statusLine.textContent = 'Probing file…';
+
+  const off = window.vem.onCutterProgress(({ fraction, stage }) => {
+    prog.value = Math.round((fraction || 0) * 100);
+    const label = stage === 'scanning' ? 'Scanning for silent gaps…'
+      : stage === 'rendering' ? `Cutting & re-encoding… ${Math.round((fraction||0)*100)}%`
+      : 'Probing file…';
+    statusLine.textContent = label;
+  });
+
+  try {
+    const res = await window.vem.cutterRun(inputPath, outPath, opts);
+    if (res.ok) {
+      const d = res.data;
+      resultBox.style.display = 'block';
+      resultBox.textContent = `Done — ${d.originalDuration}s → ${d.outputDuration}s ` +
+        `(removed ${d.secondsRemoved}s across ${d.cutsMade} silent gap${d.cutsMade===1?'':'s'}). Saved to ${outPath}`;
+      statusLine.textContent = 'Done.';
+    } else {
+      errorBox.style.display = 'block';
+      errorBox.textContent = res.cancelled ? 'Cancelled.' : ('Failed: ' + res.error);
+      statusLine.textContent = '';
+    }
+  } catch (err) {
+    errorBox.style.display = 'block';
+    errorBox.textContent = 'Failed: ' + (err && err.message || err);
+  } finally {
+    off();
+    running = false;
+    runBtn.disabled = false;
+    pickBtn.disabled = false;
+    cancelBtn.style.display = 'none';
+    prog.style.display = 'none';
+  }
+});
+
+cancelBtn.addEventListener('click', async () => {
+  await window.vem.cutterCancel();
+});
+</script>
+</body>
+</html>

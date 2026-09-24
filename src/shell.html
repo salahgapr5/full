@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Production Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#f4f7fc; --ink-2:#ffffff; --ink-3:#eef2f9; --line:rgba(20,40,80,0.08); --line-strong:rgba(20,40,80,0.14);
+  --text:#1e2c42; --text-soft:#5b6b84; --text-dim:#8b97ab;
+  --brass:#2563eb; --brass-hi:#3b82f6; --brass-ink:#ffffff;
+}
+html,body{ margin:0; padding:0; height:100%; overflow:hidden; }
+body{
+  background:var(--ink); color:var(--text); font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  display:flex; flex-direction:column; height:100vh;
+}
+/* ---- two-row nav chrome ------------------------------------------------ */
+#navRows{ flex:0 0 auto; background:var(--ink-2); border-bottom:1px solid var(--line-strong); }
+.nav-row{ display:flex; align-items:center; gap:8px; padding:8px 14px; overflow-x:auto; scrollbar-width:thin; }
+.nav-row + .nav-row{ border-top:1px solid var(--line); }
+.nav-row::-webkit-scrollbar{ height:6px; }
+.nav-row::-webkit-scrollbar-thumb{ background:var(--line-strong); border-radius:3px; }
+.nav-btn{
+  flex:0 0 auto; display:flex; align-items:center; gap:7px; padding:7px 13px; border-radius:9px;
+  background:var(--ink-3); border:1px solid transparent; cursor:pointer; font-size:12.5px; font-weight:600;
+  color:var(--text-soft); font-family:'Inter',sans-serif; white-space:nowrap; transition:background .12s, color .12s;
+}
+.nav-btn:hover{ background:var(--ink-4,var(--ink-3)); color:var(--text); }
+.nav-btn.active{ background:var(--brass); color:var(--brass-ink); }
+.nav-btn .ico{ font-size:14px; line-height:1; }
+.nav-divider{ width:1px; align-self:stretch; background:var(--line-strong); margin:0 4px; flex:0 0 auto; }
+.nav-label{ font-family:'IBM Plex Mono',monospace; font-size:10px; font-weight:700; letter-spacing:.04em; color:var(--text-dim); text-transform:uppercase; padding:0 4px 0 2px; flex:0 0 auto; }
+
+/* ---- content area: three stacked webviews ------------------------------ */
+#content{ position:relative; flex:1 1 auto; min-height:0; }
+webview{ position:absolute; inset:0; width:100%; height:100%; display:none; }
+webview.active{ display:flex; }
+#loadingHint{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--text-dim); font-size:13px; font-family:'IBM Plex Mono',monospace; pointer-events:none; }
+</style>
+</head>
+<body>
+
+<div id="navRows">
+  <div class="nav-row" id="topRow"></div>
+  <div class="nav-row" id="toolsRow">
+    <span class="nav-label">Tools</span>
+    <button class="nav-btn" data-tool="video"><span class="ico">🎬</span> Video Editor</button>
+    <button class="nav-btn" data-tool="audio"><span class="ico">🎧</span> Audio Maker</button>
+    <button class="nav-btn" data-tool="cutter"><span class="ico">✂️</span> Cutter &amp; Compress</button>
+    <button class="nav-btn" data-tool="thumbnail"><span class="ico">🖼️</span> Thumbnail</button>
+  </div>
+</div>
+
+<div id="content">
+  <div id="loadingHint">Loading…</div>
+  <webview id="siteView" src="site.html" class="active"></webview>
+  <webview id="editorView" src="editor.html"></webview>
+  <webview id="cutterView" src="cutter.html"></webview>
+</div>
+
+<script>
+// Site-side ids this shell drives via webview.executeJavaScript(). Must match site.html.
+const MANAGER_ID = 'manager', LINKS_ID = 'links', ACCOUNTS_ID = 'accounts',
+      AUDIO_ID = 'audio', THUMB_ID = 'thumbnail', INFO_ID = 'informations';
+
+const topRow = document.getElementById('topRow');
+const toolsRow = document.getElementById('toolsRow');
+const siteView = document.getElementById('siteView');
+const editorView = document.getElementById('editorView');
+const cutterView = document.getElementById('cutterView');
+const loadingHint = document.getElementById('loadingHint');
+const views = { site: siteView, editor: editorView, cutter: cutterView };
+
+let siteDomReady = false;
+let currentView = 'site';
+// What's currently selected, for highlighting: { row:'top'|'tools', key:string }
+let activeSelection = { row: 'top', key: null };
+
+// The `preload` attribute needs an absolute path; get it from the main process
+// once (the shell's own page has window.vem via the main BrowserWindow's preload).
+(async () => {
+  const appDir = await window.vem.getAppDir();
+  const preloadUrl = 'file://' + appDir + '/preload.js';
+  editorView.setAttribute('preload', preloadUrl);
+  cutterView.setAttribute('preload', preloadUrl);
+})();
+
+function showView(name) {
+  currentView = name;
+  Object.entries(views).forEach(([k, el]) => el.classList.toggle('active', k === name));
+  loadingHint.style.display = 'none';
+}
+
+function markActive(row, key) {
+  activeSelection = { row, key };
+  document.querySelectorAll('.nav-btn[data-person], .nav-btn[data-page]').forEach(b => {
+    b.classList.toggle('active', row === 'top' && (b.dataset.person === key || b.dataset.page === key));
+  });
+  document.querySelectorAll('.nav-btn[data-tool]').forEach(b => {
+    b.classList.toggle('active', row === 'tools' && b.dataset.tool === key);
+  });
+}
+
+// Runs a snippet inside the site webview, then brings it to the front.
+async function goToSite(idExpr, row, key) {
+  showView('site');
+  markActive(row, key);
+  if (!siteDomReady) return; // the dom-ready handler below re-runs the last selection once loaded
+  try {
+    await siteView.executeJavaScript(`activePerson = ${idExpr}; renderTabs(); renderBoard();`);
+  } catch (e) { /* site still loading — ignored, will settle on its own default view */ }
+}
+
+// ---- top row: people (dynamic — refreshed from the site's own PEOPLE array,
+// so a member Salah adds later shows up here too) + Salah + the site's other pages ----
+let lastPeopleKey = '';
+async function refreshTopRow() {
+  if (!siteDomReady) return;
+  let state;
+  try {
+    const json = await siteView.executeJavaScript(
+      `JSON.stringify({ people: PEOPLE.map(p=>({id:p.id,name:p.name})) })`
+    );
+    state = JSON.parse(json);
+  } catch (e) { return; }
+
+  const peopleKey = JSON.stringify(state.people);
+  if (peopleKey === lastPeopleKey) return; // no change — don't rebuild and lose the active highlight
+  lastPeopleKey = peopleKey;
+
+  topRow.innerHTML = '';
+  state.people.forEach(p => {
+    const btn = document.createElement('button');
+    btn.className = 'nav-btn';
+    btn.dataset.person = p.id;
+    btn.innerHTML = `<span class="ico">👤</span> ${escapeHtml(p.name)}`;
+    btn.addEventListener('click', () => goToSite(JSON.stringify(p.id), 'top', p.id));
+    topRow.appendChild(btn);
+  });
+
+  const divider = document.createElement('div');
+  divider.className = 'nav-divider';
+  topRow.appendChild(divider);
+
+  const pages = [
+    { id: 'manager', label: 'Salah', ico: '⭐', expr: JSON.stringify(MANAGER_ID) },
+    { id: 'links', label: 'Links', ico: '🔗', expr: JSON.stringify(LINKS_ID) },
+    { id: 'informations', label: 'Informations', ico: '📋', expr: JSON.stringify(INFO_ID) },
+    { id: 'accounts', label: 'Accounts', ico: '🔒', expr: JSON.stringify(ACCOUNTS_ID) },
+  ];
+  pages.forEach(pg => {
+    const btn = document.createElement('button');
+    btn.className = 'nav-btn';
+    btn.dataset.page = pg.id;
+    btn.innerHTML = `<span class="ico">${pg.ico}</span> ${pg.label}`;
+    btn.addEventListener('click', () => goToSite(pg.expr, 'top', pg.id));
+    topRow.appendChild(btn);
+  });
+
+  // Re-apply whatever was highlighted before the rebuild (e.g. right after login).
+  if (activeSelection.row === 'top' && activeSelection.key) markActive('top', activeSelection.key);
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+// ---- tools row -----------------------------------------------------------
+toolsRow.querySelectorAll('.nav-btn[data-tool]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const tool = btn.dataset.tool;
+    if (tool === 'video') { showView('editor'); markActive('tools', 'video'); return; }
+    if (tool === 'cutter') { showView('cutter'); markActive('tools', 'cutter'); return; }
+    if (tool === 'audio') { goToSite(JSON.stringify(AUDIO_ID), 'tools', 'audio'); return; }
+    if (tool === 'thumbnail') { goToSite(JSON.stringify(THUMB_ID), 'tools', 'thumbnail'); return; }
+  });
+});
+
+// ---- wiring ---------------------------------------------------------------
+siteView.addEventListener('dom-ready', () => {
+  siteDomReady = true;
+  // Mark this page as embedded so its own internal nav (nav.tabs) stays hidden —
+  // the shell's two rows replace it. See the `body.embedded` rule in site.html.
+  siteView.executeJavaScript(`document.body.classList.add('embedded');`).catch(() => {});
+  refreshTopRow();
+});
+
+// Membership can change (Salah adding/removing a member from Member Accounts), so
+// keep the top row's people in sync without needing the site to push a message out.
+setInterval(refreshTopRow, 2500);
+
+loadingHint.textContent = 'Loading…';
+</script>
+</body>
+</html>

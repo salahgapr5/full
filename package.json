@@ -1,0 +1,49 @@
+{
+  "name": "video-editor-desktop",
+  "version": "0.5.0",
+  "description": "Production Board (member boards, Audio Maker, Cutter & Compress, Thumbnail, Video Editor) packaged as a Mac desktop app.",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.videoeditor.desktop",
+    "productName": "Production Board",
+    "files": [
+      "src/**/*",
+      "build/icon.png"
+    ],
+    "mac": {
+      "category": "public.app-category.video",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "asarUnpack": [
+      "node_modules/ffmpeg-static/**",
+      "node_modules/ffprobe-static/**"
+    ],
+    "afterPack": "scripts/adhoc-sign.js",
+    "dmg": {
+      "title": "Production Board"
+    }
+  },
+  "dependencies": {
+    "ffmpeg-static": "^5.3.0",
+    "ffprobe-static": "^3.1.0"
+  }
+}
