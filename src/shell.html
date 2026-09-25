@@ -57,9 +57,14 @@ webview.active{ display:flex; }
 
 <div id="content">
   <div id="loadingHint">Loading…</div>
-  <webview id="siteView" src="site.html" class="active"></webview>
-  <webview id="editorView" src="editor.html"></webview>
-  <webview id="cutterView" src="cutter.html"></webview>
+  <!-- allowpopups: without it, Electron blocks every window.open()/target=_blank request from
+       inside a <webview> before main.js's setWindowOpenHandler (see main.js, web-contents-created)
+       ever sees it — that's why buttons like "Get Script" and the Links tab did nothing on click.
+       With it, the request reaches that handler, which opens the link in the system's default
+       browser (Safari, unless changed) via shell.openExternal instead of doing nothing. -->
+  <webview id="siteView" src="site.html" class="active" allowpopups></webview>
+  <webview id="editorView" src="editor.html" allowpopups></webview>
+  <webview id="cutterView" src="cutter.html" allowpopups></webview>
 </div>
 
 <script>

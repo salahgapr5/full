@@ -1,11 +1,11 @@
 name: Build Mac app
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:   # adds a manual "Run workflow" button on GitHub
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-14   # Apple Silicon runner
     steps:
       - uses: actions/checkout@v4
 
@@ -19,17 +19,10 @@ jobs:
       - name: Build the .dmg
         run: npx electron-builder --mac --publish never
 
-      - name: Show build output
-        run: find dist -maxdepth 2
-
       - name: Sanity-check the packaged app
-        continue-on-error: true
         run: |
-          APP=$(find dist -maxdepth 2 -name "*.app" -type d | head -1)
-          echo "App found at: $APP"
-          [ -n "$APP" ] || { echo "No .app found"; exit 1; }
-          FF=$(find "$APP" -name ffmpeg -type f | head -1)
-          echo "ffmpeg found at: $FF"
+          APP="dist/mac-arm64/Video Editor.app"
+          FF="$APP/Contents/Resources/app.asar.unpacked/node_modules/ffmpeg-static/ffmpeg"
           file "$FF"
           "$FF" -version | head -1
           "$FF" -hide_banner -encoders | grep -E "videotoolbox|libx264" || echo "WARNING: no h264 encoder found in bundled ffmpeg"
